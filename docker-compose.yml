@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: discorp
+      POSTGRES_PASSWORD: discorp
+      POSTGRES_DB: discorp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U discorp -d discorp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build: .
+    restart: "no"
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://discorp:discorp@postgres:5432/discorp
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  bot:
+    build: .
+    restart: unless-stopped
+    command: ["node", "dist/index.js"]
+    environment:
+      DATABASE_URL: postgresql://discorp:discorp@postgres:5432/discorp
+      REDIS_URL: redis://redis:6379
+    env_file: .env
+    volumes:
+      - ./agents:/app/agents
+      - ./data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    environment:
+      DATABASE_URL: postgresql://discorp:discorp@postgres:5432/discorp
+      REDIS_URL: redis://redis:6379
+    env_file: .env
+    volumes:
+      - ./agents:/app/agents
+      - ./data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

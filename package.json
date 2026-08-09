@@ -1,0 +1,46 @@
+{
+  "name": "discorp",
+  "version": "0.1.0",
+  "description": "An open-source AI organization orchestration framework for Discord. Simulate a virtual company of specialized AI agents with goals, reviews, memory, and BYOK providers.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:worker": "tsx watch src/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "start:worker": "node dist/worker.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "seed": "tsx prisma/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@google/genai": "^0.9.0",
+    "@prisma/client": "^6.2.1",
+    "bullmq": "^5.34.10",
+    "discord.js": "^14.17.3",
+    "dotenv": "^16.4.7",
+    "ioredis": "^5.4.2",
+    "openai": "^4.80.1",
+    "pg": "^8.13.1",
+    "pino": "^9.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "pino-pretty": "^13.0.0",
+    "prisma": "^6.2.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

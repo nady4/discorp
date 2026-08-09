@@ -1,0 +1,290 @@
+// DisCorp database schema
+// PostgreSQL 16 + pgvector (embedding column is Unsupported("vector(1024)"),
+// vector similarity is executed through raw SQL in src/database/vector.ts)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Organization state ────────────────────────────────────────────────
+
+model Guild {
+  id                    String            @id // Discord guild id
+  mode                  GuildMode         @default(STANDARD)
+  sleepMode             Boolean           @default(false)
+  maxMonthlyBudgetCents Int               @default(5000) // USD cents
+  maxExecutionsPerDay   Int               @default(100)
+  providerOverrides     Json? // optional per-guild provider settings
+  configChannelId       String? // channel for reports/notifications
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  goals          Goal[]
+  tasks          Task[]
+  agents         GuildAgent[]
+  executions     AgentExecution[]
+  reviews        Review[]
+  reports        Report[]
+  memory         MemoryItem[]
+  usageSummaries UsageSummary[]
+}
+
+enum GuildMode {
+  LIGHTWEIGHT // Level 1: low-cost personal assistant
+  STANDARD // Level 2: personal AI company assistant
+  AUTONOMOUS // Level 3: full AI organization simulation
+}
+
+// ─── Agents ────────────────────────────────────────────────────────────
+
+model Agent {
+  id     String @id // slug, e.g. "cto"
+  name   String
+  role   String
+  source AgentSource @default(BUILTIN) // builtin (shipped json) | custom (user json)
+  config Json // raw agent.json
+  active Boolean @default(true)
+  modeMin Int @default(1) // minimum guild mode level for this agent
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guilds GuildAgent[]
+  executions AgentExecution[]
+  reviews Review[]
+  reports Report[]
+}
+
+enum AgentSource {
+  BUILTIN
+  CUSTOM
+}
+
+// Per-guild agent state: enablement + sleep
+model GuildAgent {
+  guildId   String
+  agentId   String
+  enabled   Boolean @default(true)
+  sleepUntil DateTime? // agent sleeps (skips work) until this time
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([guildId, agentId])
+}
+
+// ─── Goals ─────────────────────────────────────────────────────────────
+
+model Goal {
+  id          String     @id @default(cuid())
+  guildId     String
+  title       String
+  description String?
+  status      GoalStatus @default(PENDING)
+  plan        Json? // analysis output: phases + task breakdown
+  ownerId     String? // Discord user id
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  guild   Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+  reports Report[]
+}
+
+enum GoalStatus {
+  PENDING
+  ANALYZING
+  IN_PROGRESS
+  REVIEWING
+  COMPLETED
+  FAILED
+}
+
+// ─── Tasks ─────────────────────────────────────────────────────────────
+
+model Task {
+  id               String     @id @default(cuid())
+  guildId          String
+  goalId           String?
+  title            String
+  description      String
+  status           TaskStatus @default(PENDING)
+  priority         Priority   @default(MEDIUM)
+  assignedAgentId  String? // Agent slug
+  result           String? // final output of the agent run
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  guild      Guild           @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  goal       Goal?           @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  executions AgentExecution[]
+  reviews    Review[]
+
+  @@index([guildId, status])
+}
+
+enum TaskStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  BLOCKED
+  FAILED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ─── Execution audit (cost tracking) ──────────────────────────────────
+
+model AgentExecution {
+  id          String   @id @default(cuid())
+  guildId     String
+  agentId     String
+  taskId      String?
+  kind        ExecutionKind @default(COMMAND)
+  model       String
+  inputTokens Int
+  outputTokens Int
+  costCents   Float
+  prompt      String? // truncated prompt
+  output      String? // truncated output
+  error       String?
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  task  Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@index([guildId, startedAt])
+}
+
+enum ExecutionKind {
+  GOAL // goal analysis / planning
+  REVIEW // review workflows
+  COMMAND // interactive command response
+  AUTONOMOUS // background worker work
+  COLLABORATION // agent-to-agent messages
+}
+
+// ─── Reviews ───────────────────────────────────────────────────────────
+
+model Review {
+  id            String       @id @default(cuid())
+  guildId       String
+  type          ReviewType
+  title         String
+  status        ReviewStatus @default(PENDING)
+  requesterId   String? // Discord user id
+  leadAgentId   String? // Agent slug leading the review
+  participants  String[] // Agent slugs that joined
+  findings      Json?
+  taskId        String?
+  reportId      String?
+  scheduled     Boolean      @default(false) // true if worker-triggered
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  task  Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  leadAgent Agent? @relation(fields: [leadAgentId], references: [id], onDelete: SetNull)
+}
+
+enum ReviewType {
+  DAILY
+  PROJECT
+  CODE
+  STRATEGY
+  SECURITY
+  PERFORMANCE
+}
+
+enum ReviewStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+// ─── Reports ───────────────────────────────────────────────────────────
+
+model Report {
+  id            String  @id @default(cuid())
+  guildId       String
+  goalId        String?
+  reviewId      String?
+  title         String
+  content       String
+  authorAgentId String?
+  createdAt     DateTime @default(now())
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  goal  Goal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  authorAgent Agent? @relation(fields: [authorAgentId], references: [id], onDelete: SetNull)
+}
+
+// ─── Memory ────────────────────────────────────────────────────────────
+
+model MemoryItem {
+  id        String   @id @default(cuid())
+  guildId   String
+  agentId   String? // source agent (null = org-level)
+  kind      MemoryKind @default(FACT)
+  content   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  // The embedding column is created by the pgvector migration:
+  //   ADD COLUMN "embedding" vector(1024)
+  // Similarity search uses raw SQL (src/database/vector.ts), not Prisma.
+  embedding Unsupported("vector(1024)")?
+
+  @@index([guildId, kind])
+  @@index([guildId, createdAt])
+}
+
+enum MemoryKind {
+  FACT
+  DECISION
+  LESSON
+  MESSAGE
+  PREFERENCE
+}
+
+// ─── Usage aggregates (/balance) ───────────────────────────────────────
+
+model UsageSummary {
+  id          String   @id @default(cuid())
+  guildId     String
+  period      String // "2026-08-09" (day) or "2026-08" (month)
+  granularity Granularity
+  tokensIn    Int      @default(0)
+  tokensOut   Int      @default(0)
+  costCents   Float    @default(0)
+  executions  Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, period, granularity])
+}
+
+enum Granularity {
+  DAY
+  MONTH
+}
