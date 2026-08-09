@@ -1,7 +1,7 @@
 <h1 align="center">Discorp</h1>
 
 <p align="center">
-🌐 Open-source AI organization framework for Discord where autonomous agents collaborate as virtual company members with specialized roles, goals, and workflows.. Built with Node.js, TypeScript, Discord.js, PostgreSQL + pgvector, Redis, and BullMQ — self-hosted with Docker on your own VPS, running on your own AI keys (BYOK).
+🌐 Open-source AI orchestration framework for Discord where autonomous agents collaborate as virtual company members with specialized roles, goals, and workflows.. Built with Node.js, TypeScript, Discord.js, PostgreSQL + pgvector, Redis, and BullMQ — self-hosted with Docker on your own VPS, running on your own AI keys (BYOK).
 </p>
 
 <br>
