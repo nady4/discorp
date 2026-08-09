@@ -1,7 +1,7 @@
-<h1 align="center"> 💼 DisCorp </h1>
+<h1 align="center"> 💼 Discorp </h1>
 
 <p align="center">
-🤖 Open-source AI organization orchestration framework for Discord. Turn any Discord server into a virtual AI company — a team of specialized agents (CEO, CTO, PM, Developer, QA, Research, Security, Marketing, Finance, Community) working toward your goals with their own memory, tools, and reports. Built with Node.js, TypeScript, Discord.js, PostgreSQL + pgvector, Redis, and BullMQ — self-hosted with Docker on your own VPS, running on your own AI keys (BYOK).
+🌐 Open-source AI organization framework for Discord where autonomous agents collaborate as virtual company members with specialized roles, goals, and workflows.. Built with Node.js, TypeScript, Discord.js, PostgreSQL + pgvector, Redis, and BullMQ — self-hosted with Docker on your own VPS, running on your own AI keys (BYOK).
 </p>
 
 <br>
