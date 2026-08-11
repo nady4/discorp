@@ -7,6 +7,7 @@ import { reviewEngine } from "../orchestration/index.js";
 import { orchestrator } from "../orchestration/index.js";
 import { executor, registry } from "../agents/index.js";
 import { ExecutionKind, GuildMode, ReviewType } from "@prisma/client";
+import { extractJson } from "../utils/json.js";
 import { logger } from "../utils/logger.js";
 import { errorMessage } from "../utils/errors.js";
 
@@ -141,6 +142,15 @@ export function startWorkers(): void {
         }
       }
 
+      // 3) Self-generated goals (L3, at most one per day per guild)
+      if (level >= 3) {
+        try {
+          await maybeGenerateGoal(guildId, summary);
+        } catch (err) {
+          logger.warn({ guildId, err: errorMessage(err) }, "self-generated goal failed");
+        }
+      }
+
       if (summary.length) {
         await postToGuild(guildId, summary.join("\n\n"), "🔄 Autonomous session report");
       }
@@ -156,4 +166,35 @@ export function startWorkers(): void {
   });
 
   logger.info("bullmq workers started");
+}
+
+const SELF_GENERATED_OWNER = "system";
+
+/** Propose + create one goal per day when the org is idle (L3 autonomy). */
+async function maybeGenerateGoal(guildId: string, summary: string[]): Promise<void> {
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  const already = await prisma.goal.count({
+    where: { guildId, ownerId: SELF_GENERATED_OWNER, createdAt: { gte: startOfDay } },
+  });
+  if (already > 0) return;
+
+  const proposal = await executor.run({
+    guildId,
+    agentId: "ceo",
+    kind: ExecutionKind.AUTONOMOUS,
+    maxToolRounds: 1,
+    taskBrief: [
+      "You are the CEO. The organization is idle and has budget headroom.",
+      "Review the active goals, tasks, and recent reports, then propose ONE valuable new goal.",
+      "Respond with STRICT JSON only (no markdown): {\"title\":\"...\",\"description\":\"...\"}",
+    ].join("\n"),
+  });
+  const parsed = extractJson<{ title?: string; description?: string }>(proposal.content);
+  const title = String(parsed?.title ?? "").trim();
+  if (!title) return;
+
+  const goal = await orchestrator.addGoal({ guildId, userId: SELF_GENERATED_OWNER, title: title.slice(0, 200), description: parsed?.description });
+  const analysis = await orchestrator.analyzeGoal(guildId, goal.id);
+  summary.push(`🎯 Self-generated goal — **${title}** (${analysis.createdTaskIds.length} tasks planned)`);
 }

@@ -12,6 +12,8 @@ Your guild runs a virtual AI company. These are the commands:
 
 **Agents & tasks**
 - \`/agents\` — list all available agents (role, responsibilities, tools).
+- \`/chat <agent> <message>\` — talk directly to an agent.
+- \`/swarm <prompt> [agents] [merge]\` — parallel multi-agent session with CEO synthesis.
 - \`/assign new <title> <description> [agent]\` — create and execute a one-off task.
 - \`/assign task <taskId> [agent]\` — (re)assign an existing task.
 
@@ -28,10 +30,14 @@ Your guild runs a virtual AI company. These are the commands:
 - \`/config budget <usd>\` — max monthly spend for this guild.
 - \`/config sleep <on|off> [agent]\` — put the whole org or one agent to sleep.
 - \`/config wake [agent]\` — wake the org or an agent.
-- \`/config channel <#channel>\` — where scheduled reports get posted.
 - \`/config provider\` — show the active AI provider and model.
+- \`/config provider-set <provider> [model]\` — per-guild provider override.
+- \`/config provider-clear\` — remove the per-guild override.
+- \`/config channel <#channel>\` — where scheduled reports get posted.
 - \`/config agents\` — reload agent definitions from disk.
 - \`/config new-agent <id> <name> <role> <persona>\` — register a custom agent.
+
+AI-costing commands (\`/chat\`, \`/assign\`, \`/review\`, \`/goals\`, \`/swarm\`) are rate-limited to 5 per user per minute.
 
 **Modes**
 - **Level 1 · Lightweight** — low cost, reactive, CEO/PM/Research only.

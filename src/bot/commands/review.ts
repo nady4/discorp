@@ -2,7 +2,7 @@ import { SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.j
 import { prisma } from "../../database/prisma.js";
 import { reviewEngine } from "../../orchestration/index.js";
 import { errorEmbed, infoEmbed, sendLong, successEmbed, truncate } from "../../utils/discord.js";
-import { errorMessage } from "../../utils/errors.js";
+import { userMessage } from "../../utils/errors.js";
 import { ReviewType } from "@prisma/client";
 import type { CommandModule } from "./types.js";
 
@@ -65,9 +65,10 @@ export const command: CommandModule = {
         ],
       });
     } catch (err) {
-      await interaction.editReply({ embeds: [errorEmbed("Review failed", errorMessage(err))] });
+      await interaction.editReply({ embeds: [errorEmbed("Review failed", userMessage(err))] });
     }
   },
+  rateLimited: true,
 };
 
 export default command;

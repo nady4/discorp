@@ -27,8 +27,13 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/agents ./agents
+COPY --from=build /app/plugins ./plugins
 COPY --from=build /app/package.json ./package.json
-RUN mkdir -p /app/data/workspace
+RUN mkdir -p /app/data/workspace && chown -R node:node /app
+
+# Run as a non-root user; the workspace volume must be writable by this user
+# (e.g. chown -R 1000:1000 ./data on the host).
+USER node
 
 EXPOSE 8080
 CMD ["node", "dist/index.js"]

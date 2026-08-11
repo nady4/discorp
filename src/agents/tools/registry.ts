@@ -30,6 +30,12 @@ export const TOOL_PERMISSION: Record<string, string> = {
   github_list_files: "github",
   github_read_file: "github",
   web_search: "web_search",
+  linear_issue_create: "linear",
+  jira_issue_create: "jira",
+  notion_page_create: "notion",
+  email_send: "email",
+  slack_message: "slack",
+  delegate_task: "delegation",
 };
 
 /**

@@ -1,10 +1,12 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction, type GuildMember } from "discord.js";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../database/prisma.js";
 import { env, parseMode } from "../../config/index.js";
 import { registry } from "../../agents/index.js";
 import { syncAgentCatalog, syncGuildAgents } from "../../database/guilds.js";
+import { refreshSchedules } from "../../workers/scheduler.js";
 import { errorEmbed, infoEmbed, successEmbed } from "../../utils/discord.js";
-import { errorMessage } from "../../utils/errors.js";
+import { userMessage } from "../../utils/errors.js";
 import { AGENT_TOOL_NAMES } from "../../agents/types.js";
 import type { CommandModule } from "./types.js";
 
@@ -26,6 +28,7 @@ async function setMode(interaction: ChatInputCommandInteraction) {
     embeds: [successEmbed("Mode updated", `Organization intensity set to **${mode}**. Level ${parseMode(raw)}. Agents and workers adjust accordingly.`)],
   });
   void syncGuildAgents(guildId);
+  refreshSchedules();
 }
 
 async function setBudget(interaction: ChatInputCommandInteraction) {
@@ -67,6 +70,26 @@ async function setSleep(interaction: ChatInputCommandInteraction) {
   await interaction.editReply({
     embeds: [successEmbed(on ? "😴 Organization asleep" : "☀️ Organization awake", on ? "All autonomous work is paused." : "Work can resume.")],
   });
+  refreshSchedules();
+}
+
+async function setWake(interaction: ChatInputCommandInteraction) {
+  const agentId = interaction.options.getString("agent");
+  const guildId = interaction.guildId!;
+
+  if (agentId) {
+    await prisma.guildAgent.upsert({
+      where: { guildId_agentId: { guildId, agentId } },
+      create: { guildId, agentId, enabled: true },
+      update: { sleepUntil: null },
+    });
+    await interaction.editReply({ embeds: [successEmbed("☀️ Agent awake", `**${agentId}** is awake.`)] });
+    return;
+  }
+
+  await prisma.guild.update({ where: { id: guildId }, data: { sleepMode: false } });
+  await interaction.editReply({ embeds: [successEmbed("☀️ Organization awake", "Work can resume.")] });
+  refreshSchedules();
 }
 
 async function setChannel(interaction: ChatInputCommandInteraction) {
@@ -90,10 +113,38 @@ async function showProvider(interaction: ChatInputCommandInteraction) {
           `**Base URL**: ${env.AI_BASE_URL ?? "(default)"}`,
           `**Embeddings**: ${env.AI_EMBEDDING_PROVIDER ?? env.AI_PROVIDER} / ${env.AI_EMBEDDING_MODEL}`,
           overrides.provider ? `**Guild override**: ${overrides.provider} / ${overrides.model ?? env.AI_MODEL}` : `**Guild override**: none (global BYOK config)`,
+          overrides.provider ? "Clear it with /config provider clear." : "Set one with /config provider set.",
         ].join("\n"),
       ),
     ],
   });
+}
+
+async function setProviderOverride(interaction: ChatInputCommandInteraction) {
+  const provider = interaction.options.getString("provider", true);
+  const model = interaction.options.getString("model");
+  const baseUrl = interaction.options.getString("baseurl");
+  const apiKey = interaction.options.getString("apikey");
+  if (!["openai", "anthropic", "gemini", "ollama"].includes(provider)) {
+    await interaction.editReply({ embeds: [errorEmbed("Invalid provider", "Use openai, anthropic, gemini or ollama.")] });
+    return;
+  }
+  const guildId = interaction.guildId!;
+  const current = ((await prisma.guild.findUnique({ where: { id: guildId } }))?.providerOverrides ?? {}) as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...current, provider };
+  if (model) next.model = model;
+  if (baseUrl) next.baseUrl = baseUrl;
+  if (apiKey) next.apiKey = apiKey;
+  await prisma.guild.update({ where: { id: guildId }, data: { providerOverrides: next as Prisma.InputJsonValue } });
+  await interaction.editReply({
+    embeds: [successEmbed("Provider override saved", `**${provider}**${model ? ` / ${model}` : ""}. This guild now uses its own provider config.`)],
+  });
+}
+
+async function clearProviderOverride(interaction: ChatInputCommandInteraction) {
+  const guildId = interaction.guildId!;
+  await prisma.guild.update({ where: { id: guildId }, data: { providerOverrides: Prisma.JsonNull } });
+  await interaction.editReply({ embeds: [successEmbed("Provider override cleared", "This guild uses the global BYOK config again.")] });
 }
 
 async function reloadAgents(interaction: ChatInputCommandInteraction) {
@@ -172,11 +223,36 @@ export const command: CommandModule = {
     )
     .addSubcommand((s) =>
       s
+        .setName("wake")
+        .setDescription("Wake the org or one agent")
+        .addStringOption((o) => o.setName("agent").setDescription("Agent id (optional — wakes only this agent)")),
+    )
+    .addSubcommand((s) =>
+      s
         .setName("channel")
         .setDescription("Set channel where scheduled reports are posted")
         .addChannelOption((o) => o.setName("channel").setDescription("Text channel").setRequired(true)),
     )
     .addSubcommand((s) => s.setName("provider").setDescription("Show the active AI provider and model"))
+    .addSubcommand((s) =>
+      s
+        .setName("provider-set")
+        .setDescription("Set a per-guild provider override")
+        .addStringOption((o) =>
+          o
+            .setName("provider")
+            .setDescription("openai | anthropic | gemini | ollama")
+            .setRequired(true)
+            .addChoices(
+              { name: "openai", value: "openai" },
+              { name: "anthropic", value: "anthropic" },
+              { name: "gemini", value: "gemini" },
+              { name: "ollama", value: "ollama" },
+            ),
+        )
+        .addStringOption((o) => o.setName("model").setDescription("Model id for this guild")),
+    )
+    .addSubcommand((s) => s.setName("provider-clear").setDescription("Clear the per-guild provider override"))
     .addSubcommand((s) => s.setName("agents").setDescription("Reload agent definitions from disk"))
     .addSubcommand((s) =>
       s
@@ -193,7 +269,7 @@ export const command: CommandModule = {
     const member = interaction.member as GuildMember | null;
     if (!isAdmin(member, interaction.user.id)) {
       await interaction.editReply({
-        embeds: [errorEmbed("No permission", "Only the bot owner (ADMIN_USER_IDS) or users with Manage Guild permission can configure the organization.")],
+        embeds: [errorEmbed("No permission", "Only the bot owner (ADMIN_USER_IDS) or users with Manage Server permission can configure the organization.")],
       });
       return;
     }
@@ -202,14 +278,18 @@ export const command: CommandModule = {
       if (sub === "mode") return await setMode(interaction);
       if (sub === "budget") return await setBudget(interaction);
       if (sub === "sleep") return await setSleep(interaction);
+      if (sub === "wake") return await setWake(interaction);
       if (sub === "channel") return await setChannel(interaction);
       if (sub === "provider") return await showProvider(interaction);
+      if (sub === "provider-set") return await setProviderOverride(interaction);
+      if (sub === "provider-clear") return await clearProviderOverride(interaction);
       if (sub === "agents") return await reloadAgents(interaction);
       if (sub === "new-agent") return await newAgent(interaction);
     } catch (err) {
-      await interaction.editReply({ embeds: [errorEmbed("Error", errorMessage(err))] });
+      await interaction.editReply({ embeds: [errorEmbed("Error", userMessage(err))] });
     }
   },
+  adminOnly: true,
 };
 
 export default command;

@@ -38,6 +38,27 @@ const envSchema = z.object({
   WORKSPACE_DIR: z.string().default("./data/workspace"),
 
   GITHUB_TOKEN: z.string().optional(),
+
+  // ─── Integration tool credentials (v0.3) ─────────────────────────────
+  LINEAR_API_KEY: z.string().optional(),
+  JIRA_BASE_URL: z.string().optional(),
+  JIRA_EMAIL: z.string().optional(),
+  JIRA_API_TOKEN: z.string().optional(),
+  NOTION_API_KEY: z.string().optional(),
+  NOTION_DATABASE_ID: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+  SLACK_BOT_TOKEN: z.string().optional(),
+  SLACK_CHANNEL: z.string().optional(),
+
+  // ─── Ensemble & plugin settings (v0.5/v1.0) ─────────────────────────
+  AI_ENSEMBLE_MODEL: z.string().optional(),
+  PLUGINS_DIR: z.string().default("./plugins"),
+  SERVER_PORT: z.coerce.number().int().positive().default(8080),
+  SERVER_BIND: z.string().default("127.0.0.1"),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

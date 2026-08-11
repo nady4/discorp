@@ -9,15 +9,45 @@ const MAX_FILE_BYTES = 512 * 1024; // 512 KB per file
 const root = path.resolve(env.WORKSPACE_DIR);
 
 /**
- * Resolve a tool-supplied path against the sandbox root. Throws if the
- * resolved path escapes the workspace (path traversal protection).
+ * Resolve a tool-supplied path against the sandbox root and verify the real
+ * (symlink-followed) location stays inside the workspace. Walk up to the
+ * nearest existing ancestor so realpath can resolve paths that don't exist
+ * yet (write path).
  */
-function resolveSafe(relPath: string): string {
-  const resolved = path.resolve(root, relPath);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+async function resolveSafe(relPath: string): Promise<string> {
+  return resolveSafePath(relPath, root);
+}
+
+/**
+ * Resolve a path against a sandbox root and verify the real (symlink-followed)
+ * location stays inside it. Walk up to the nearest existing ancestor so
+ * realpath can resolve paths that don't exist yet (write path). Exported for
+ * tests.
+ */
+export async function resolveSafePath(relPath: string, sandboxRoot: string): Promise<string> {
+  const rootDir = path.resolve(sandboxRoot);
+  await fs.mkdir(rootDir, { recursive: true });
+  const resolved = path.resolve(rootDir, relPath);
+  if (resolved !== rootDir && !resolved.startsWith(rootDir + path.sep)) {
     throw new Error(`Path escapes the workspace sandbox: ${relPath}`);
   }
-  return resolved;
+
+  let probe = resolved;
+  const suffix: string[] = [];
+  for (let i = 0; i < 64; i++) {
+    const real = await fs.realpath(probe).catch(() => null);
+    if (real) {
+      if (real !== rootDir && !real.startsWith(rootDir + path.sep)) {
+        throw new Error(`Path resolves outside the workspace sandbox: ${relPath}`);
+      }
+      return path.join(real, ...suffix);
+    }
+    suffix.unshift(path.basename(probe));
+    const parent = path.dirname(probe);
+    if (parent === probe) break;
+    probe = parent;
+  }
+  throw new Error(`Path resolves outside the workspace sandbox: ${relPath}`);
 }
 
 function toSummary(stat: { name: string; type: string; size: number }): string {
@@ -34,7 +64,7 @@ export const filesystemTools: AgentTool[] = [
       required: ["path"],
     },
     async execute(args, _ctx) {
-      const dir = resolveSafe(String(args.path ?? "."));
+      const dir = await resolveSafe(String(args.path ?? "."));
       const entries = await fs.readdir(dir, { withFileTypes: true });
       const lines = await Promise.all(
         entries.map(async (e) => {
@@ -62,7 +92,7 @@ export const filesystemTools: AgentTool[] = [
       required: ["path"],
     },
     async execute(args, _ctx) {
-      const file = resolveSafe(String(args.path));
+      const file = await resolveSafe(String(args.path));
       const stat = await fs.stat(file).catch(() => null);
       if (!stat) throw new Error(`File not found: ${args.path}`);
       if (stat.size > MAX_FILE_BYTES) throw new Error(`File too large (${stat.size} B, max ${MAX_FILE_BYTES} B)`);
@@ -81,11 +111,14 @@ export const filesystemTools: AgentTool[] = [
       required: ["path", "content"],
     },
     async execute(args, _ctx) {
-      const file = resolveSafe(String(args.path));
+      const content = String(args.content ?? "");
+      const bytes = Buffer.byteLength(content, "utf8");
+      if (bytes > MAX_FILE_BYTES) throw new Error(`File too large (${bytes} B, max ${MAX_FILE_BYTES} B)`);
+      const file = await resolveSafe(String(args.path));
       await fs.mkdir(path.dirname(file), { recursive: true });
-      await fs.writeFile(file, String(args.content ?? ""), "utf8");
+      await fs.writeFile(file, content, "utf8");
       logger.debug({ file: args.path }, "workspace file written");
-      return `Wrote ${file.length} bytes to ${args.path}`;
+      return `Wrote ${bytes} bytes to ${args.path}`;
     },
   },
 ];

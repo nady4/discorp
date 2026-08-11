@@ -6,6 +6,12 @@ export const AGENT_TOOL_NAMES = [
   "filesystem", // sandboxed file read/write in the workspace
   "github", // GitHub repo access (requires GITHUB_TOKEN)
   "web_search", // web search (DuckDuckGo, best-effort, no key)
+  "linear", // Linear issue creation (requires LINEAR_API_KEY)
+  "jira", // Jira issue creation (requires JIRA_*)
+  "notion", // Notion page creation (requires NOTION_*)
+  "email", // SMTP email (requires SMTP_*)
+  "slack", // Slack message (requires SLACK_*)
+  "delegation", // delegate_task — ask another agent to do work
 ] as const;
 
 export type AgentToolName = (typeof AGENT_TOOL_NAMES)[number];
@@ -18,7 +24,8 @@ export const agentDefinitionSchema = z.object({
   role: z.string().min(1),
   description: z.string().default(""),
   responsibilities: z.array(z.string()).default([]),
-  tools: z.array(z.enum(AGENT_TOOL_NAMES)).default([]),
+  // Builtin tool groups plus plugin-registered tool names (v1.0 plugins).
+  tools: z.array(z.union([z.enum(AGENT_TOOL_NAMES), z.string().regex(/^[a-z0-9_]{1,64}$/)])).default([]),
   permissions: z.array(z.string()).default([]),
   persona: z.string().min(1),
   modeMin: z.number().int().min(1).max(3).default(1),

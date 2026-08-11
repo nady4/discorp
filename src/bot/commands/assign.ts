@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.js";
 import { orchestrator } from "../../orchestration/index.js";
 import { errorEmbed, infoEmbed, successEmbed, truncate } from "../../utils/discord.js";
-import { errorMessage } from "../../utils/errors.js";
+import { userMessage } from "../../utils/errors.js";
 import type { CommandModule } from "./types.js";
 
 async function assignNew(interaction: ChatInputCommandInteraction) {
@@ -31,7 +31,7 @@ async function assignNew(interaction: ChatInputCommandInteraction) {
       ],
     });
   } catch (err) {
-    await interaction.followUp({ embeds: [errorEmbed("Task failed", errorMessage(err))] });
+    await interaction.followUp({ embeds: [errorEmbed("Task failed", userMessage(err))] });
   }
 }
 
@@ -71,9 +71,10 @@ export const command: CommandModule = {
       if (sub === "new") return await assignNew(interaction);
       if (sub === "task") return await assignTask(interaction);
     } catch (err) {
-      await interaction.editReply({ embeds: [errorEmbed("Error", errorMessage(err))] });
+      await interaction.editReply({ embeds: [errorEmbed("Error", userMessage(err))] });
     }
   },
+  rateLimited: true,
 };
 
 export default command;

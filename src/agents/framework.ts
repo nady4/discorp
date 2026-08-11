@@ -81,10 +81,14 @@ export class AgentExecutor {
       throw new DiscorpError(`Guild ${input.guildId} not registered`, "This guild is not registered yet. Try again in a moment.");
     }
 
-    const provider = createChatProvider(input.providerOverrides);
+    const providerOverrides =
+      input.providerOverrides ?? (guild.providerOverrides as ProviderOverrides | null) ?? undefined;
+    const provider = createChatProvider(providerOverrides);
 
     // ── Safety guard (budget, limits, sleep) ────────────────────────────
-    const maxTokens = input.maxTokens ?? (await costGuard.maxTokensFor(input.guildId));
+    // Explicit maxTokens must never exceed the guild's configured cap.
+    const cap = await costGuard.maxTokensFor(input.guildId);
+    const maxTokens = Math.min(input.maxTokens ?? cap, cap);
     const estimatedCostUsd = estimateCostUsd(provider.model, maxTokens, maxTokens, env);
     await costGuard.assertCanExecute({
       guildId: input.guildId,
@@ -167,7 +171,7 @@ export class AgentExecutor {
       });
       throw new DiscorpError(
         `Agent '${input.agentId}' failed: ${errorMessage(err)}`,
-        `⚠️ ${agent.name} ran into a problem: ${errorMessage(err)}`,
+        `⚠️ ${agent.name} ran into a problem. Try again later.`,
       );
     }
 

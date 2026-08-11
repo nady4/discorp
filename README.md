@@ -38,11 +38,20 @@
 - **One interface, four adapters** — `IProvider`/`IEmbedder` with OpenAI-compatible (OpenAI, DeepSeek, OpenRouter, Together, Groq, any `/v1` gateway), Anthropic, Gemini, and local Ollama.
 - **Never hardcoded keys** — everything comes from `AI_PROVIDER` / `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` (+ optional per-guild override stored in the database for advanced setups).
 - **Tool calling normalized per vendor** — the executor drives a tool loop whose assistant/tool messages are mapped to native OpenAI `tool_calls`, Anthropic `tool_use`, and Gemini `functionCall` shapes.
-- **Sandboxed tool suite** — filesystem (confined to a workspace volume with path-traversal protection), GitHub (optional `GITHUB_TOKEN`), web search (DuckDuckGo, no key), memory read/write, and report publishing — all opt-in per agent via `agent.json`.
+- **Sandboxed tool suite** — filesystem (confined to a workspace volume with path-traversal protection), GitHub (optional `GITHUB_TOKEN`), web search (DuckDuckGo, no key), memory read/write, report publishing, and integrations (Jira, Linear, Notion, SMTP email) — all opt-in per agent via `agent.json`.
+- **Inter-agent delegation** — agents can hand work to each other (`delegate_task`) and run parallel **swarm sessions** (`/swarm`) with CEO synthesis.
+
+### 📡 Dashboard, API & plugins (v0.5/v1.0)
+
+- **Web dashboard** — zero-dependency HTTP server (`SERVER_PORT`, default `127.0.0.1:8080`) with an HTML dashboard and a JSON orchestration API (`/api/status`, `/api/goals`, `/api/tasks`, `/api/reports`, `/api/balance`, `/healthz`).
+- **pgvector HNSW** — `0002_hnsw_index` migration adds an HNSW index for fast approximate memory search.
+- **Multi-model ensembles** — set `AI_ENSEMBLE_MODEL` to add an independent second-model opinion to every review.
+- **Plugin system** — drop a directory with `plugin.json` + an ESM module into `PLUGINS_DIR` (default `./plugins`) to register new agent tools without touching core code. See `plugins/example/`.
+- **CLI** — `discorp org add|list|set-mode`, `discorp agent add|list`, `discorp status` for server-side management (`npm run cli -- <args>` or the `discorp` binary).
 
 ### 💰 Safety & cost controls
 
-- **Full audit trail** — every AI call becomes an `AgentExecution` row (model, input/output tokens, estimated USD, kind); aggregated into day/month `UsageSummary` rows.
+- **Full audit trail** — every agent run becomes an `AgentExecution` row (model, input/output tokens, estimated USD, kind); embeddings are metered into the day/month `UsageSummary` aggregates (tokens + cost, without counting as executions).
 - **Budget & rate caps** — monthly budget (`/config budget <usd>`), daily execution cap, per-execution token cap (2 048 for L1 guilds), all enforced by a `CostGuard` before every execution.
 - **Sleep mode** — `/config sleep on` pauses the whole org (scheduled jobs are removed); `/config sleep on agent:dev` naps one agent for 12 hours.
 - **Pricing table with fallbacks** — `src/config/models.ts` holds USD-per-1M-token estimates for the common models; unknown models fall back to `FALLBACK_COST_PER_1M_*`.
@@ -130,34 +139,73 @@ Discord (users)
 
 - A Linux VPS (2 GB RAM is plenty for L1/L2), with Docker + Docker Compose.
 - A [Discord bot token](https://discord.com/developers/applications).
-- An AI provider API key (DeepSeek, OpenAI, Anthropic, Gemini — or a local Ollama, which needs none).
+- An AI provider API key (OpenCode Go, DeepSeek, OpenAI, Anthropic, Gemini — or a local Ollama, which needs none).
 
 ### 🤖 Discord bot setup
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications) → **New Application**.
-2. **Bot** → Reset Token → copy it.
-3. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`; permissions `Send Messages`, `Embed Links`, `Read Message History` (add `Manage Guild` if you want `/config` to honor the permission check).
-4. Invite the bot to your server. Commands register automatically on boot (a few seconds).
-5. Run `/help` in your server.
+2. Open **Bot**. If Discord shows **Add Bot**, click it. Then use **Reset Token** and copy the token.
+3. Open **Installation**. Under **Installation Contexts**, enable **Guild Install**.
+4. Under **Install Link**, select **Discord Provided Link**. In **Default Install Settings** for **Guild Install**, select scopes `applications.commands` and `bot`.
+5. In the bot permissions menu, select `View Channels`, `Send Messages`, `Embed Links`, and `Read Message History`, then save the settings if Discord shows a **Save Changes** button.
+6. Copy the generated **Install Link**, open it, and select your server. Commands register automatically on boot (a few seconds).
+7. Run `/help` in your server.
 
-Admins are your Discord IDs in `ADMIN_USER_IDS` (comma-separated) — or anyone with the **Manage Guild** permission.
+The **OAuth2 → URL Generator** is optional. If you use it, select only `bot` and `applications.commands`; scopes such as `identify` require a redirect URI. If `bot` is not available there, configure the **Installation** page instead. The generator's selections are not saved when you reload.
+
+The person installing the app must have **Manage Server** (or be the server owner). This is not a bot permission and is not required in the bot's invite settings. Users who run `/config` must also have **Manage Server**, unless their Discord ID is listed in `ADMIN_USER_IDS` (comma-separated).
 
 ### 🔑 Environment setup
 
 ```sh
-git clone https://github.com/<you>/discorp.git
+git clone https://github.com/nady4/discorp.git
 cd discorp
 cp .env.example .env
 ```
 
-**DeepSeek (OpenAI-compatible):**
+**OpenCode Go (OpenAI-compatible):**
 
 ```env
+# Application
+NODE_ENV=production
+LOG_LEVEL=info
+
+# Discord
 DISCORD_TOKEN=your-discord-token
+ADMIN_USER_IDS=your-discord-user-id
+
+# Databases
+DATABASE_URL=postgresql://discorp:discorp@localhost:5432/discorp
+REDIS_URL=redis://localhost:6379
+
+# AI provider
 AI_PROVIDER=openai
-AI_API_KEY=sk-xxxxxxxx
-AI_BASE_URL=https://api.deepseek.com/v1
-AI_MODEL=deepseek-v4-flash-0731
+AI_API_KEY=your-api-key
+AI_BASE_URL=https://opencode.ai/zen/go/v1
+AI_MODEL=deepseek-v4-flash
+AI_TEMPERATURE=0.7
+AI_MAX_TOKENS=4096
+
+# Embeddings for long-term memory
+# OpenCode Go is chat-only. Set a separate provider if memory search is used.
+AI_EMBEDDING_PROVIDER=
+AI_EMBEDDING_MODEL=nomic-embed-text
+AI_EMBEDDING_DIM=1024
+
+# Organization defaults
+DEFAULT_GUILD_MODE=standard
+DEFAULT_MONTHLY_BUDGET=50
+DEFAULT_MAX_EXECUTIONS_PER_DAY=100
+MAX_TOKENS_PER_EXECUTION=16384
+FALLBACK_COST_PER_1M_INPUT=1.00
+FALLBACK_COST_PER_1M_OUTPUT=3.00
+
+# Agent configuration
+AGENTS_DIR=./agents/definitions
+WORKSPACE_DIR=./data/workspace
+
+# Optional tool credentials
+GITHUB_TOKEN=
 ```
 
 **Any OpenAI-compatible gateway (OpenRouter, Together, Groq, …)** — same as above, swap `AI_BASE_URL` / `AI_MODEL`.
@@ -197,6 +245,7 @@ npm run dev:worker                       # bullmq workers (second terminal)
 | `npm run build`         | Compile TypeScript to `dist/`     |
 | `npm start`             | Run the compiled bot              |
 | `npm run start:worker`  | Run the compiled workers          |
+| `npm run cli -- <cmd>`  | CLI management (org/agent/status) |
 | `npm run typecheck`     | Strict TypeScript check           |
 | `npm test`              | Run vitest suites                 |
 | `npm run prisma:deploy` | Apply migrations to the database  |
@@ -212,33 +261,38 @@ npm run dev:worker                       # bullmq workers (second terminal)
 | `/goals list` · `/goals view <id>` · `/goals complete <id>`                                                               | Track the org's goals                                      |
 | `/assign new <title> <description> [agent]`                                                                               | One-off task, executed immediately                         |
 | `/assign task <taskId> [agent]`                                                                                           | (Re)assign an existing task                                |
+| `/chat <agent> <message>`                                                                                                 | Talk directly to an agent                                 |
+| `/swarm <prompt> [agents] [merge]`                                                                                        | Parallel multi-agent session + CEO synthesis              |
 | `/review <type> [task] [title]`                                                                                           | daily · project · code · strategy · security · performance |
 | `/agents`                                                                                                                 | Roster: roles, responsibilities, tools, active/sleeping    |
 | `/status`                                                                                                                 | Mode, goals, tasks, agents, budget, today's usage          |
-| `/memory search <q>` · `/memory recent` · `/memory remove <id>`                                                           | Inspect stored knowledge                                   |
-| `/config mode <1\|2\|3>` · `budget <usd>` · `sleep on/off [agent]` · `channel <#c>` · `provider` · `agents` · `new-agent` | Admin configuration                                        |
+| `/memory search <q>` · `/memory recent` · `/memory report <id>` · `/memory remove <id>` | Inspect stored knowledge and review reports |
+| `/config mode <1\|2\|3>` · `budget <usd>` · `sleep on/off [agent]` · `wake [agent]` · `channel <#c>` · `provider` · `provider-set` · `provider-clear` · `agents` · `new-agent` | Admin configuration |
 | `/balance`                                                                                                                | Today, month, all-time cost + tokens                       |
 
 <br>
 
 ## 📝 Notes
 
-- **BYOK scope** — the provider comes from the environment (the self-hoster's key). An optional per-guild override (`Guild.providerOverrides` JSON: `provider`, `apiKey`, `baseUrl`, `model`, `temperature`, `maxTokens`) exists for advanced multi-tenant setups; `/config provider` shows what's active. Keys stored in the DB are the self-hoster's responsibility.
+- **BYOK scope** — the provider comes from the environment (the self-hoster's key). An optional per-guild override (`/config provider-set` or `Guild.providerOverrides` JSON: `provider`, `apiKey`, `baseUrl`, `model`, `temperature`, `maxTokens`) exists for advanced multi-tenant setups; `/config provider` shows what's active. Keys stored in the DB are the self-hoster's responsibility.
+- **Authorization & rate limits** — `/config` and `/swarm` are admin-only (bot owner via `ADMIN_USER_IDS`, or Manage Server). AI-costing commands (`/chat`, `/assign`, `/review`, `/goals`, `/swarm`) are rate-limited to 5 per user per minute.
 - **Embedding dimension** — `AI_EMBEDDING_DIM` (default 1024) must match the `vector(1024)` column in `prisma/migrations/0001_init/migration.sql`. Changing it requires a new migration.
 - **Prices are estimates** — `/balance` uses the pricing table in `src/config/models.ts`; unknown models fall back to `FALLBACK_COST_PER_1M_*`. Fine for budgeting, not a bill.
 - **The filesystem tool is sandboxed** to `WORKSPACE_DIR` with path-traversal protection — agents can never escape it. GitHub/web tools are opt-in and disabled without credentials.
 - **L1 guilds get leaner runs** — 2 048 token cap per execution, single-agent reviews, no scheduled jobs.
-- **IPv6-only DNS hosts** (Docker `npm ci` fails with `EAI_AGAIN`) — build with `docker build --network=host -t discorp .`; the VPS doesn't need this.
+- **IPv6-only DNS hosts** (Docker `npm ci` fails with `EAI_AGAIN`) — the compose services already build with `network: host`; for manual builds use `docker build --network=host -t discorp .`.
 
 <br>
 
 ## 🗺️ Roadmap
 
-- [ ] **v0.2** — CLI management (`discorp org add`, `discorp agent add`), agent chat (`/chat <agent>`)
-- [ ] **v0.3** — Tool ecosystem: Jira/Linear, Slack, Notion, email
-- [ ] **v0.4** — Autonomous refinements: inter-agent delegation, swarm sessions, self-generated goals
-- [ ] **v0.5** — Web dashboard (goals, reports, costs), pgvector HNSW indexes, multi-model ensembles
-- [ ] **v1.0** — Stable orchestration API + plugin system
+All roadmap milestones are implemented (v1.0).
+
+- [x] **v0.2** — CLI management (`discorp org add/list/set-mode`, `discorp agent add/list`, `discorp status`) + agent chat (`/chat <agent>`)
+- [x] **v0.3** — Tool ecosystem: Jira, Linear, Notion, email (SMTP) agent tools (Slack can be reached via `email` or future webhooks)
+- [x] **v0.4** — Autonomous refinements: inter-agent delegation (`delegate_task`), swarm sessions (`/swarm`), self-generated goals (L3 worker)
+- [x] **v0.5** — Web dashboard (goals, reports, costs) + pgvector HNSW indexes + multi-model ensembles (`AI_ENSEMBLE_MODEL` reviews)
+- [x] **v1.0** — Stable orchestration API (`/api/*`) + plugin system (`PLUGINS_DIR`)
 
 <br>
 

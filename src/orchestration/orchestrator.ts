@@ -1,4 +1,4 @@
-import { ExecutionKind, GoalStatus, Priority, TaskStatus } from "@prisma/client";
+import { ExecutionKind, GoalStatus, Priority, TaskStatus, type Goal, type Guild } from "@prisma/client";
 import { prisma } from "../database/prisma.js";
 import { executor } from "../agents/index.js";
 import { registry } from "../agents/index.js";
@@ -53,7 +53,9 @@ export class Orchestrator {
   /** Run the goal-analysis workflow (CEO strategy → PM task breakdown). */
   async analyzeGoal(guildId: string, goalId: string): Promise<GoalAnalysis> {
     const goal = await prisma.goal.findUnique({ where: { id: goalId } });
-    if (!goal) throw new DiscorpError(`Goal not found: ${goalId}`);
+    if (!goal || goal.guildId !== guildId) {
+      throw new DiscorpError(`Goal not found: ${goalId}`, "Goal not found in this guild.");
+    }
     const guild = await prisma.guild.findUnique({ where: { id: guildId } });
     if (!guild) throw new DiscorpError(`Guild not registered: ${guildId}`);
 
@@ -61,6 +63,18 @@ export class Orchestrator {
       throw new DiscorpError(`Cannot analyze goal: ${errorMessage(e)}`);
     });
 
+    try {
+      return await this.runAnalysis(guild, goal);
+    } catch (err) {
+      // Never leave a goal stuck in ANALYZING when the analysis pipeline fails.
+      await prisma.goal.update({ where: { id: goalId }, data: { status: GoalStatus.FAILED } }).catch(() => {});
+      throw err;
+    }
+  }
+
+  private async runAnalysis(guild: Guild, goal: Goal): Promise<GoalAnalysis> {
+    const guildId = guild.id;
+    const goalId = goal.id;
     const level = modeLevel(guild.mode);
     const activeAgents = registry.activeAtLevel(level).map((a) => a.id);
     const goalText = `Goal: ${goal.title}\nDescription: ${goal.description ?? "(none)"}`;
@@ -140,7 +154,7 @@ export class Orchestrator {
   /** Assign a task to an agent (explicit or routed). */
   async assignTask(guildId: string, taskId: string, agentId?: string): Promise<{ taskId: string; agentId: string }> {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
-    if (!task) throw new DiscorpError(`Task not found: ${taskId}`, "Task not found.");
+    if (!task || task.guildId !== guildId) throw new DiscorpError(`Task not found: ${taskId}`, "Task not found.");
     const guild = await prisma.guild.findUnique({ where: { id: guildId } });
     if (!guild) throw new DiscorpError(`Guild not registered: ${guildId}`);
 
@@ -165,7 +179,7 @@ export class Orchestrator {
   /** Execute an assigned task with its agent. */
   async executeTask(guildId: string, taskId: string): Promise<{ taskId: string; content: string; agentId: string }> {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
-    if (!task) throw new DiscorpError(`Task not found: ${taskId}`, "Task not found.");
+    if (!task || task.guildId !== guildId) throw new DiscorpError(`Task not found: ${taskId}`, "Task not found.");
     if (!task.assignedAgentId) throw new DiscorpError(`Task has no assigned agent`, "Assign this task first with /assign.");
 
     await prisma.task.update({ where: { id: taskId }, data: { status: TaskStatus.IN_PROGRESS } });
@@ -223,14 +237,29 @@ export class Orchestrator {
   }
 
   private async maybeCompleteGoal(goalId: string): Promise<void> {
-    const [remaining] = await Promise.all([
+    const [remaining, goal] = await Promise.all([
       prisma.task.count({ where: { goalId, status: { not: TaskStatus.DONE } } }),
+      prisma.goal.findUnique({ where: { id: goalId } }),
     ]);
-    if (remaining === 0) {
-      await workflow.startReview(goalId);
-      await workflow.complete(goalId);
-      logger.info({ goalId }, "goal auto-completed");
+    if (remaining !== 0 || !goal) return;
+    if (goal.status === GoalStatus.COMPLETED || goal.status === GoalStatus.FAILED) return;
+
+    if (goal.status === GoalStatus.REVIEWING) {
+      await workflow.complete(goalId).catch((e) => {
+        logger.warn({ goalId, err: errorMessage(e) }, "goal auto-complete failed");
+      });
+      return;
     }
+    if (goal.status === GoalStatus.IN_PROGRESS) {
+      await workflow.startReview(goalId).catch((e) => {
+        logger.warn({ goalId, err: errorMessage(e) }, "goal auto-review start failed");
+      });
+      await workflow.complete(goalId).catch((e) => {
+        logger.warn({ goalId, err: errorMessage(e) }, "goal auto-complete failed");
+      });
+      return;
+    }
+    logger.warn({ goalId, status: goal.status }, "goal cannot auto-complete from its current state");
   }
 }
 

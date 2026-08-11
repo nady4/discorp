@@ -26,15 +26,21 @@ export class Workflow {
   }
 
   async markInProgress(goalId: string): Promise<void> {
-    await this.transition(GoalStatus.ANALYZING, GoalStatus.IN_PROGRESS, goalId);
+    if (!(await this.transition(GoalStatus.ANALYZING, GoalStatus.IN_PROGRESS, goalId))) {
+      throw new DiscorpError(`Goal ${goalId} is not in ANALYZING state`);
+    }
   }
 
   async startReview(goalId: string): Promise<void> {
-    await this.transition(GoalStatus.IN_PROGRESS, GoalStatus.REVIEWING, goalId);
+    if (!(await this.transition(GoalStatus.IN_PROGRESS, GoalStatus.REVIEWING, goalId))) {
+      throw new DiscorpError(`Goal ${goalId} is not in IN_PROGRESS state`);
+    }
   }
 
   async complete(goalId: string): Promise<void> {
-    await this.transition(GoalStatus.REVIEWING, GoalStatus.COMPLETED, goalId);
+    if (!(await this.transition(GoalStatus.REVIEWING, GoalStatus.COMPLETED, goalId))) {
+      throw new DiscorpError(`Goal ${goalId} is not in REVIEWING state`);
+    }
     // Close any dangling tasks
     await prisma.task.updateMany({
       where: { goalId, status: { in: [TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS] } },

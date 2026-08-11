@@ -48,7 +48,7 @@ export async function storeMemory(input: {
   });
   await pool.query(
     `UPDATE "MemoryItem" SET embedding = $1::vector WHERE id = $2`,
-    [input.embedding, item.id],
+    [vectorLiteral(input.embedding), item.id],
   );
   return { ...item, metadata: (item.metadata as Record<string, unknown> | null) ?? null };
 }
@@ -75,7 +75,7 @@ export async function searchMemory(input: {
     params.push(input.agentId);
     conditions.push(`"agentId" = $${params.length}`);
   }
-  params.push(input.embedding, limit);
+  params.push(vectorLiteral(input.embedding), limit);
 
   const { rows } = await pool.query<{
     id: string;

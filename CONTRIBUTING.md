@@ -32,15 +32,19 @@ npm run dev:worker     # bullmq workers
 src/
   bot/          Discord client, slash commands, events
   agents/       agent.json registry, executor, personalities, tools
-  orchestration/ goal→task workflow, task routing, review engine
+  orchestration/ goal→task workflow, task routing, review engine, swarm sessions
   memory/       short-term (Redis) + long-term (pgvector) memory
   providers/    IProvider abstraction (openai-compatible, anthropic, gemini, ollama)
   workers/      BullMQ queues, scheduler, review/autonomous workers
   config/       zod-validated env + model pricing table
   database/     Prisma client, pgvector pool, guild/agent sync
-  utils/        logger, cost guard, discord helpers
+  plugins/      v1.0 plugin loader (PLUGINS_DIR)
+  server/       zero-dependency web dashboard + orchestration API
+  cli/          `discorp` CLI (org/agent management)
+  utils/        logger, cost guard, rate limiter, permissions, smtp, discord helpers
 prisma/         schema + migrations
 agents/definitions/ built-in agent.json files
+plugins/example/    example v1.0 plugin
 tests/          vitest suites
 ```
 

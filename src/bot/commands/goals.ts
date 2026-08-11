@@ -1,9 +1,10 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.js";
+import { GoalStatus } from "@prisma/client";
 import { prisma } from "../../database/prisma.js";
 import { orchestrator } from "../../orchestration/index.js";
 import { workflow } from "../../orchestration/index.js";
 import { errorEmbed, infoEmbed, sendLong, successEmbed } from "../../utils/discord.js";
-import { DiscorpError, errorMessage } from "../../utils/errors.js";
+import { userMessage } from "../../utils/errors.js";
 import type { CommandModule } from "./types.js";
 
 async function addGoal(interaction: ChatInputCommandInteraction) {
@@ -37,7 +38,7 @@ async function addGoal(interaction: ChatInputCommandInteraction) {
     await interaction.followUp({ embeds: [infoEmbed("📋 Goal analysis complete", lines.join("\n").slice(0, 4000))] });
   } catch (err) {
     await interaction.followUp({
-      embeds: [errorEmbed("Analysis failed", errorMessage(err))],
+      embeds: [errorEmbed("Analysis failed", userMessage(err))],
     });
   }
 }
@@ -93,7 +94,9 @@ async function completeGoal(interaction: ChatInputCommandInteraction) {
     await interaction.editReply({ embeds: [errorEmbed("Goal not found", `No goal \`${id}\` in this guild.`)] });
     return;
   }
-  await workflow.startReview(goal.id);
+  if (goal.status === GoalStatus.IN_PROGRESS) {
+    await workflow.startReview(goal.id);
+  }
   await workflow.complete(goal.id);
   await interaction.editReply({ embeds: [successEmbed("✅ Goal completed", `**${goal.title}**`)] });
 }
@@ -130,10 +133,10 @@ export const command: CommandModule = {
       if (sub === "view") return await viewGoal(interaction);
       if (sub === "complete") return await completeGoal(interaction);
     } catch (err) {
-      const msg = err instanceof DiscorpError ? err.userMessage ?? err.message : errorMessage(err);
-      await interaction.editReply({ embeds: [errorEmbed("Error", msg)] });
+      await interaction.editReply({ embeds: [errorEmbed("Error", userMessage(err))] });
     }
   },
+  rateLimited: true,
 };
 
 export default command;

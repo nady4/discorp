@@ -1,0 +1,20 @@
+{
+  "id": "example",
+  "name": "Example plugin",
+  "version": "0.1.0",
+  "description": "Demonstrates the DisCorp plugin system with a sample tool.",
+  "entry": "index.js",
+  "tools": [
+    {
+      "name": "example_hello",
+      "description": "Example plugin tool: returns a greeting for a name.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Name to greet" }
+        },
+        "required": ["name"]
+      }
+    }
+  ]
+}

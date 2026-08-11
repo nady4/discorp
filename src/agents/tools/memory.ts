@@ -1,8 +1,11 @@
 import { MemoryKind } from "@prisma/client";
 import { embedText, searchMemory, storeMemory } from "../../memory/index.js";
+import { normalizeKind } from "../../utils/memoryKind.js";
 import type { AgentTool, ToolContext } from "./registry.js";
 
 const MAX_STORE_LENGTH = 4000;
+
+export { normalizeKind } from "../../utils/memoryKind.js";
 
 export const memoryTools: AgentTool[] = [
   {
@@ -16,7 +19,7 @@ export const memoryTools: AgentTool[] = [
     },
     async execute(args, ctx) {
       const query = String(args.query ?? "");
-      const { embedding } = await embedText(query);
+      const { embedding } = await embedText(query, ctx.guildId);
       const results = await searchMemory({
         guildId: ctx.guildId,
         embedding,
@@ -50,8 +53,8 @@ export const memoryTools: AgentTool[] = [
     },
     async execute(args, ctx) {
       const content = String(args.content ?? "").slice(0, MAX_STORE_LENGTH);
-      const kind = (String(args.kind ?? "FACT").toUpperCase() as MemoryKind) in MemoryKind ? (String(args.kind).toUpperCase() as MemoryKind) : MemoryKind.FACT;
-      const { embedding } = await embedText(content);
+      const kind = normalizeKind(args.kind);
+      const { embedding } = await embedText(content, ctx.guildId);
       const item = await storeMemory({
         guildId: ctx.guildId,
         agentId: ctx.agentId,

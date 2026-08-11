@@ -4,20 +4,30 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: discorp
-      POSTGRES_PASSWORD: discorp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-discorp}
       POSTGRES_DB: discorp
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Local development access only — never expose to the public internet.
+    ports:
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U discorp -d discorp"]
       interval: 5s
       timeout: 5s
       retries: 10
+    mem_limit: 512m
+    cpus: 1.0
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      # Set REDIS_PASSWORD in .env to require auth.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: ["sh", "-c", "exec redis-server --appendonly yes $([ -n \"$REDIS_PASSWORD\" ] && printf ' --requirepass %s' \"$REDIS_PASSWORD\")"]
+    ports:
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -25,52 +35,96 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    mem_limit: 256m
+    cpus: 0.5
 
   migrate:
-    build: .
+    build:
+      context: .
+      # npm ci needs outbound DNS/registry access; bridge networking can lack
+      # NAT on some hosts (also used for IPv6-only VPSes).
+      network: host
     restart: "no"
     command: ["npx", "prisma", "migrate", "deploy"]
     environment:
-      DATABASE_URL: postgresql://discorp:discorp@postgres:5432/discorp
+      DATABASE_URL: postgresql://discorp:${POSTGRES_PASSWORD:-discorp}@postgres:5432/discorp
     env_file: .env
     depends_on:
       postgres:
         condition: service_healthy
 
   bot:
-    build: .
+    build:
+      context: .
+      network: host
     restart: unless-stopped
     command: ["node", "dist/index.js"]
     environment:
-      DATABASE_URL: postgresql://discorp:discorp@postgres:5432/discorp
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://discorp:${POSTGRES_PASSWORD:-discorp}@postgres:5432/discorp
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./agents:/app/agents
       - ./data:/app/data
+      - ./plugins:/app/plugins
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 768m
+    cpus: 1.0
 
   worker:
-    build: .
+    build:
+      context: .
+      network: host
     restart: unless-stopped
     command: ["node", "dist/worker.js"]
     environment:
-      DATABASE_URL: postgresql://discorp:discorp@postgres:5432/discorp
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://discorp:${POSTGRES_PASSWORD:-discorp}@postgres:5432/discorp
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     env_file: .env
     volumes:
       - ./agents:/app/agents
       - ./data:/app/data
+      - ./plugins:/app/plugins
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 768m
+    cpus: 1.0
+
+  backup:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-discorp}
+    command: ["sh", "-c", "while true; do pg_dump -h postgres -U discorp -d discorp -Fc > /backups/discorp-$(date +%Y%m%d-%H%M).dump && find /backups -name '*.dump' -mtime +7 -delete; sleep 86400; done"]
+    volumes:
+      - backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 256m
 
 volumes:
   pgdata:
   redisdata:
+  backups:

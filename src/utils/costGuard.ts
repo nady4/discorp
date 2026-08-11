@@ -1,7 +1,7 @@
 import { Guild, GuildMode, ExecutionKind, Prisma } from "@prisma/client";
 import { prisma } from "../database/prisma.js";
-import { env } from "../config/index.js";
-import { CostGuardError, ExecutionLimitError } from "./errors.js";
+import { env, estimateCostUsd } from "../config/index.js";
+import { CostGuardError } from "./errors.js";
 import { logger } from "./logger.js";
 
 export interface GuardCheck {
@@ -99,6 +99,10 @@ export async function recordExecution(input: {
 }): Promise<string> {
   let executionId = "";
   await prisma.$transaction(async (tx) => {
+    // Atomic limit enforcement: re-check budget + daily cap while holding row
+    // locks on the usage aggregates, so concurrent runs cannot exceed them.
+    await checkLimits(tx, input.guildId, input.costCents);
+
     const created = await tx.agentExecution.create({
       data: {
         guildId: input.guildId,
@@ -127,6 +131,74 @@ export async function recordExecution(input: {
   return executionId;
 }
 
+/**
+ * Meter an embedding call into the day/month usage aggregates (tokens + cost)
+ * without counting it as an agent execution against the daily cap.
+ */
+export async function recordEmbeddingUsage(guildId: string, model: string, inputTokens: number): Promise<void> {
+  const costCents = Math.round(estimateCostUsd(model, inputTokens, 0, env) * 1000) / 10;
+  await prisma.$transaction(async (tx) => {
+    await upsertUsage(tx, guildId, "DAY", inputTokens, 0, costCents, false);
+    await upsertUsage(tx, guildId, "MONTH", inputTokens, 0, costCents, false);
+  });
+}
+
+interface UsageRow {
+  costCents: number;
+  executions: number;
+}
+
+/**
+ * Enforce monthly budget + daily execution cap atomically. Locks the DAY and
+ * MONTH usage rows for the guild so concurrent recordExecution calls serialize
+ * and cannot both pass the check before the other's increment commits.
+ */
+async function checkLimits(tx: Prisma.TransactionClient, guildId: string, costCents: number): Promise<void> {
+  const guild = await tx.guild.findUnique({ where: { id: guildId } });
+  if (!guild) throw new CostGuardError("This guild is not registered with DisCorp yet.");
+
+  const dayKey = new Date().toISOString().slice(0, 10);
+  const monthKey = new Date().toISOString().slice(0, 7);
+
+  // Ensure rows exist so FOR UPDATE always has a row to lock.
+  for (const [period, granularity] of [
+    [dayKey, "DAY"],
+    [monthKey, "MONTH"],
+  ] as const) {
+    await tx.usageSummary.upsert({
+      where: { guildId_period_granularity: { guildId, period, granularity } },
+      create: { guildId, period, granularity, tokensIn: 0, tokensOut: 0, costCents: 0, executions: 0 },
+      update: { executions: { increment: 0 } },
+    });
+  }
+
+  const [dayRows, monthRows] = await Promise.all([
+    tx.$queryRaw<UsageRow[]>`
+      SELECT "costCents", "executions" FROM "UsageSummary"
+      WHERE "guildId" = ${guildId} AND "period" = ${dayKey} AND "granularity" = 'DAY'
+      FOR UPDATE`,
+    tx.$queryRaw<UsageRow[]>`
+      SELECT "costCents", "executions" FROM "UsageSummary"
+      WHERE "guildId" = ${guildId} AND "period" = ${monthKey} AND "granularity" = 'MONTH'
+      FOR UPDATE`,
+  ]);
+
+  const spent = monthRows[0]?.costCents ?? 0;
+  const estimatedCents = Math.ceil(costCents);
+  if (spent + estimatedCents > guild.maxMonthlyBudgetCents) {
+    throw new CostGuardError(
+      `Monthly budget exceeded ($${(spent / 100).toFixed(2)} / $${(guild.maxMonthlyBudgetCents / 100).toFixed(2)}). Raise it with /config budget.`,
+    );
+  }
+
+  const executionsToday = dayRows[0]?.executions ?? 0;
+  if (executionsToday >= guild.maxExecutionsPerDay) {
+    throw new CostGuardError(
+      `Daily execution limit reached (${guild.maxExecutionsPerDay}/${guild.maxExecutionsPerDay}). It resets at midnight UTC.`,
+    );
+  }
+}
+
 async function upsertUsage(
   tx: Prisma.TransactionClient,
   guildId: string,
@@ -134,6 +206,7 @@ async function upsertUsage(
   tokensIn: number,
   tokensOut: number,
   costCents: number,
+  countExecution = true,
 ): Promise<void> {
   const period = granularity === "DAY" ? new Date().toISOString().slice(0, 10) : new Date().toISOString().slice(0, 7);
   await tx.usageSummary.upsert({
@@ -145,13 +218,13 @@ async function upsertUsage(
       tokensIn,
       tokensOut,
       costCents,
-      executions: 1,
+      executions: countExecution ? 1 : 0,
     },
     update: {
       tokensIn: { increment: tokensIn },
       tokensOut: { increment: tokensOut },
       costCents: { increment: costCents },
-      executions: { increment: 1 },
+      executions: countExecution ? { increment: 1 } : undefined,
     },
   });
 }

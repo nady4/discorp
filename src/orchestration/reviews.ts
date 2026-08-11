@@ -1,7 +1,7 @@
 import { ExecutionKind, ReviewStatus, ReviewType } from "@prisma/client";
 import { prisma } from "../database/prisma.js";
 import { executor, registry } from "../agents/index.js";
-import { modeLevel } from "../config/index.js";
+import { env, modeLevel } from "../config/index.js";
 import { DiscorpError, errorMessage } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 
@@ -82,6 +82,12 @@ export class ReviewEngine {
   async runReview(input: ReviewInput): Promise<ReviewOutput> {
     const guild = await prisma.guild.findUnique({ where: { id: input.guildId } });
     if (!guild) throw new DiscorpError(`Guild not registered: ${input.guildId}`);
+    if (input.taskId) {
+      const task = await prisma.task.findUnique({ where: { id: input.taskId } });
+      if (!task || task.guildId !== input.guildId) {
+        throw new DiscorpError("Task not found", "Task not found in this guild.");
+      }
+    }
 
     const { lead, participants } = await resolvePlan(input.guildId, input.type);
 
@@ -101,6 +107,24 @@ export class ReviewEngine {
 
     const context = await this.gatherContext(input.guildId, input.taskId);
 
+    try {
+      const output = await this.conduct(input, review, lead, participants, context);
+      logger.info({ reviewId: review.id, type: input.type, lead, participants }, "review completed");
+      return output;
+    } catch (err) {
+      // Never leave a review stuck in IN_PROGRESS when the run fails.
+      await prisma.review.update({ where: { id: review.id }, data: { status: ReviewStatus.FAILED } }).catch(() => {});
+      throw err;
+    }
+  }
+
+  private async conduct(
+    input: ReviewInput,
+    review: { id: string; title: string },
+    lead: string,
+    participants: string[],
+    context: string,
+  ): Promise<ReviewOutput> {
     const leadRun = await executor.run({
       guildId: input.guildId,
       agentId: lead,
@@ -143,9 +167,36 @@ export class ReviewEngine {
       }
     }
 
+    // Multi-model ensemble (v0.5): when AI_ENSEMBLE_MODEL is set, run the
+    // lead review through a second model for an independent second opinion.
+    const ensembleOutputs: Record<string, string> = {};
+    if (env.AI_ENSEMBLE_MODEL) {
+      try {
+        const run = await executor.run({
+          guildId: input.guildId,
+          agentId: lead,
+          kind: ExecutionKind.COLLABORATION,
+          taskId: input.taskId,
+          maxToolRounds: 2,
+          providerOverrides: { model: env.AI_ENSEMBLE_MODEL },
+          taskBrief: [
+            `You are giving an independent second opinion on a ${input.type.toLowerCase()} review.`,
+            `Review title: ${review.title}`,
+            `Context:\n${context}`,
+            `Lead findings:\n${leadRun.content}`,
+            "Confirm what you agree with, flag anything you disagree with, and add anything the lead missed. Keep under 250 words.",
+          ].join("\n"),
+        });
+        ensembleOutputs[env.AI_ENSEMBLE_MODEL] = run.content;
+      } catch (err) {
+        logger.warn({ err: errorMessage(err) }, "ensemble second opinion failed");
+      }
+    }
+
     const findings = {
       lead: { agentId: lead, content: leadRun.content },
       participants: participantOutputs,
+      ensemble: ensembleOutputs,
       context: {
         activeGoals: context.match(/Active goals: (\d+)/)?.[1] ?? 0,
       },
@@ -161,6 +212,13 @@ export class ReviewEngine {
         "",
         `---`,
         `**${id}**`,
+        "",
+        text,
+      ]),
+      ...Object.entries(ensembleOutputs).flatMap(([model, text]) => [
+        "",
+        `---`,
+        `**Second opinion (${model})**`,
         "",
         text,
       ]),
@@ -181,7 +239,6 @@ export class ReviewEngine {
       data: { status: ReviewStatus.COMPLETED, findings: findings as unknown as object, reportId: report.id },
     });
 
-    logger.info({ reviewId: review.id, type: input.type, lead, participants }, "review completed");
     return {
       reviewId: review.id,
       type: input.type,
@@ -202,7 +259,7 @@ export class ReviewEngine {
     const lines: string[] = [];
     if (taskId) {
       const task = await prisma.task.findUnique({ where: { id: taskId }, include: { goal: true } });
-      if (task) {
+      if (task && task.guildId === guildId) {
         lines.push(`Task under review: ${task.title} (${task.status})`);
         lines.push(`Task description: ${task.description}`);
         if (task.result) lines.push(`Task result:\n${task.result.slice(0, 1500)}`);

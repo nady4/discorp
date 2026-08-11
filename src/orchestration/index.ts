@@ -4,3 +4,5 @@ export { routeTask } from "./router.js";
 export { Workflow, workflow } from "./workflow.js";
 export { ReviewEngine, reviewEngine } from "./reviews.js";
 export type { ReviewInput, ReviewOutput } from "./reviews.js";
+export { swarmRun, saveSwarmReport } from "./swarm.js";
+export type { SwarmInput, SwarmResult, SwarmRun } from "./swarm.js";

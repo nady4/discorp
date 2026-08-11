@@ -1,14 +1,14 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.js";
 import { prisma } from "../../database/prisma.js";
 import { embedText, forgetMemory, recentMemory, searchMemory } from "../../memory/index.js";
-import { errorEmbed, infoEmbed, successEmbed } from "../../utils/discord.js";
-import { errorMessage } from "../../utils/errors.js";
+import { errorEmbed, infoEmbed, sendLong, successEmbed } from "../../utils/discord.js";
+import { userMessage } from "../../utils/errors.js";
 import type { CommandModule } from "./types.js";
 
 async function search(interaction: ChatInputCommandInteraction) {
   const query = interaction.options.getString("query", true);
   const guildId = interaction.guildId!;
-  const { embedding } = await embedText(query);
+  const { embedding } = await embedText(query, guildId);
   const results = await searchMemory({ guildId, embedding, limit: 8 });
 
   if (results.length === 0) {
@@ -46,6 +46,17 @@ async function remove(interaction: ChatInputCommandInteraction) {
   await interaction.editReply({ embeds: [successEmbed("Memory removed", `\`${id}\` deleted.`)] });
 }
 
+async function report(interaction: ChatInputCommandInteraction) {
+  const id = interaction.options.getString("id", true);
+  const guildId = interaction.guildId!;
+  const item = await prisma.report.findFirst({ where: { id, guildId } });
+  if (!item) {
+    await interaction.editReply({ embeds: [errorEmbed("Not found", `No report \`${id}\` in this guild.`)] });
+    return;
+  }
+  await sendLong(interaction, `# ${item.title}\n\n${item.content}`);
+}
+
 export const command: CommandModule = {
   data: new SlashCommandBuilder()
     .setName("memory")
@@ -62,6 +73,12 @@ export const command: CommandModule = {
         .setName("remove")
         .setDescription("Delete a memory entry")
         .addStringOption((o) => o.setName("id").setDescription("Memory entry id").setRequired(true)),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("report")
+        .setDescription("View a stored review report")
+        .addStringOption((o) => o.setName("id").setDescription("Report id").setRequired(true)),
     ),
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
@@ -69,8 +86,9 @@ export const command: CommandModule = {
       if (sub === "search") return await search(interaction);
       if (sub === "recent") return await recent(interaction);
       if (sub === "remove") return await remove(interaction);
+      if (sub === "report") return await report(interaction);
     } catch (err) {
-      await interaction.editReply({ embeds: [errorEmbed("Error", errorMessage(err))] });
+      await interaction.editReply({ embeds: [errorEmbed("Error", userMessage(err))] });
     }
   },
 };

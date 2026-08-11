@@ -9,11 +9,13 @@ import status from "./status.js";
 import memory from "./memory.js";
 import config from "./config.js";
 import balance from "./balance.js";
+import chat from "./chat.js";
+import swarm from "./swarm.js";
 
 export const commands = new Collection<string, CommandModule>();
 
 export function registerCommands(): void {
-  const modules: CommandModule[] = [help, goals, review, agents, assign, status, memory, config, balance];
+  const modules: CommandModule[] = [help, goals, review, agents, assign, status, memory, config, balance, chat, swarm];
   for (const mod of modules) {
     commands.set(mod.data.name, mod);
   }

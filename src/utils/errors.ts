@@ -29,3 +29,12 @@ export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
+
+/**
+ * User-facing error text: the curated message for DiscorpError, or a generic
+ * message for anything else (never leaks provider/database internals).
+ */
+export function userMessage(err: unknown): string {
+  if (err instanceof DiscorpError) return err.userMessage ?? err.message;
+  return "Something went wrong. Please try again.";
+}
