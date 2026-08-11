@@ -6,8 +6,8 @@ import { onInteractionCreate } from "./events/interactionCreate.js";
 import { onGuildCreate } from "./events/guildCreate.js";
 import { logger } from "../utils/logger.js";
 
-export function wireEvents(client: Client): void {
-  registerCommands();
+export async function wireEvents(client: Client): Promise<void> {
+  await registerCommands();
 
   client.once("ready", (c) => {
     void onReady(c);

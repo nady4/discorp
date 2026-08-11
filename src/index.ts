@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   await registry.load();
   await loadPlugins();
 
-  wireEvents(client);
+  await wireEvents(client);
   buildClient();
 
   void startServer().catch((err) => {

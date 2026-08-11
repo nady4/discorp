@@ -263,7 +263,7 @@ export const command: CommandModule = {
         .addStringOption((o) => o.setName("role").setDescription("Role, e.g. Sales Lead").setRequired(true))
         .addStringOption((o) => o.setName("persona").setDescription("System prompt persona").setRequired(true))
         .addStringOption((o) => o.setName("responsibilities").setDescription("Comma-separated responsibilities"))
-        .addStringOption((o) => o.setName("tools").setDescription(`Comma-separated tools: ${AGENT_TOOL_NAMES.join(", ")}`)),
+        .addStringOption((o) => o.setName("tools").setDescription("Comma-separated tool names (see /help)")),
     ),
   async execute(interaction) {
     const member = interaction.member as GuildMember | null;

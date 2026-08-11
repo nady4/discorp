@@ -43,6 +43,10 @@ AI-costing commands (\`/chat\`, \`/assign\`, \`/review\`, \`/goals\`, \`/swarm\`
 - **Level 1 · Lightweight** — low cost, reactive, CEO/PM/Research only.
 - **Level 2 · Standard** — collaborating company (adds CTO, Developer, QA) + scheduled daily reviews.
 - **Level 3 · Autonomous** — full AI organization: all departments, background workers, continuous reviews.
+
+**Agent tools** (declared per agent in \`agent.json\`)
+- \`memory\` — long-term memory read/write · \`report\` — publish reports · \`filesystem\` — sandboxed workspace
+- \`github\` — repo access · \`web_search\` — DuckDuckGo · \`linear\` · \`jira\` · \`notion\` · \`email\` · \`slack\` · \`delegation\` — ask another agent for help
 `;
 
 export const command: CommandModule = {
