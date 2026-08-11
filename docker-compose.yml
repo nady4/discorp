@@ -25,7 +25,12 @@ services:
     environment:
       # Set REDIS_PASSWORD in .env to require auth.
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-    command: ["sh", "-c", "exec redis-server --appendonly yes $([ -n \"$REDIS_PASSWORD\" ] && printf ' --requirepass %s' \"$REDIS_PASSWORD\")"]
+    command:
+      [
+        "sh",
+        "-c",
+        'exec redis-server --appendonly yes $([ -n "$REDIS_PASSWORD" ] && printf '' --requirepass %s'' "$REDIS_PASSWORD")'
+      ]
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -67,7 +72,7 @@ services:
       SERVER_BIND: 0.0.0.0
     env_file: .env
     ports:
-      - "127.0.0.1:${DASHBOARD_PORT:-8080}:8080"
+      - "127.0.0.1:${DASHBOARD_PORT:-8081}:8080"
     volumes:
       - ./agents:/app/agents
       - ./data:/app/data
@@ -78,7 +83,13 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -107,7 +118,13 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -120,7 +137,12 @@ services:
     restart: unless-stopped
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:-discorp}
-    command: ["sh", "-c", "while true; do pg_dump -h postgres -U discorp -d discorp -Fc > /backups/discorp-$(date +%Y%m%d-%H%M).dump && find /backups -name '*.dump' -mtime +7 -delete; sleep 86400; done"]
+    command:
+      [
+        "sh",
+        "-c",
+        "while true; do pg_dump -h postgres -U discorp -d discorp -Fc > /backups/discorp-$(date +%Y%m%d-%H%M).dump && find /backups -name '*.dump' -mtime +7 -delete; sleep 86400; done"
+      ]
     volumes:
       - backups:/backups
     depends_on:
