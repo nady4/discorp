@@ -62,9 +62,12 @@ services:
     environment:
       DATABASE_URL: postgresql://discorp:${POSTGRES_PASSWORD:-discorp}@postgres:5432/discorp
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Bind inside the container so the published port can reach it;
+      # host exposure is limited to 127.0.0.1 by the ports mapping.
+      SERVER_BIND: 0.0.0.0
     env_file: .env
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${DASHBOARD_PORT:-8080}:8080"
     volumes:
       - ./agents:/app/agents
       - ./data:/app/data
@@ -92,6 +95,7 @@ services:
     environment:
       DATABASE_URL: postgresql://discorp:${POSTGRES_PASSWORD:-discorp}@postgres:5432/discorp
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SERVER_BIND: 0.0.0.0
     env_file: .env
     volumes:
       - ./agents:/app/agents
