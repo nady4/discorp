@@ -36,6 +36,19 @@ async function addGoal(interaction: ChatInputCommandInteraction) {
       ...tasks.map((t, i) => `${i + 1}. **${t.title}** → \`${t.agentId ?? "routed"}\` [${t.priority}]`),
     ];
     await interaction.followUp({ embeds: [infoEmbed("📋 Goal analysis complete", lines.join("\n").slice(0, 4000))] });
+
+    if (analysis.executions.length) {
+      const results = analysis.executions.map((e) =>
+        e.status === "DONE"
+          ? `✅ **${e.title}** — done by ${e.agentId}${e.summary ? `: ${e.summary}` : ""}`
+          : e.status === "BLOCKED"
+            ? `⛔ **${e.title}** — blocked by budget/limits; left for later`
+            : `❌ **${e.title}** — failed`,
+      );
+      await interaction.followUp({
+        embeds: [infoEmbed("🛠️ Task execution", results.join("\n").slice(0, 4000))],
+      });
+    }
   } catch (err) {
     await interaction.followUp({
       embeds: [errorEmbed("Analysis failed", userMessage(err))],

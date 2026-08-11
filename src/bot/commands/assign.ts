@@ -42,7 +42,21 @@ async function assignTask(interaction: ChatInputCommandInteraction) {
 
   const { agentId } = await orchestrator.assignTask(guildId, taskId, agent ?? undefined);
   await interaction.editReply({
-    embeds: [infoEmbed("📌 Task assigned", `Task \`${taskId}\` → **${agentId}**. Execute with /assign task again or wait for the worker.`)],
+    embeds: [infoEmbed("📌 Task assigned", `Task \`${taskId}\` → **${agentId}**. Run it with /assign run.`)],
+  });
+}
+
+async function assignRun(interaction: ChatInputCommandInteraction) {
+  const taskId = interaction.options.getString("task", true);
+  const guildId = interaction.guildId!;
+
+  await interaction.editReply({ embeds: [infoEmbed("🛠️ Running task", `Executing \`${taskId}\` — this can take a while…`)] });
+
+  const result = await orchestrator.executeTask(guildId, taskId);
+  await interaction.editReply({
+    embeds: [
+      successEmbed(`✅ Task done — by ${result.agentId}`, truncate(result.content, 3800)),
+    ],
   });
 }
 
@@ -64,12 +78,19 @@ export const command: CommandModule = {
         .setDescription("Assign an existing task to an agent")
         .addStringOption((o) => o.setName("task").setDescription("Task id").setRequired(true))
         .addStringOption((o) => o.setName("agent").setDescription("Agent id (default: best match)")),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("run")
+        .setDescription("Execute an assigned task now")
+        .addStringOption((o) => o.setName("task").setDescription("Task id").setRequired(true)),
     ),
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     try {
       if (sub === "new") return await assignNew(interaction);
       if (sub === "task") return await assignTask(interaction);
+      if (sub === "run") return await assignRun(interaction);
     } catch (err) {
       await interaction.editReply({ embeds: [errorEmbed("Error", userMessage(err))] });
     }

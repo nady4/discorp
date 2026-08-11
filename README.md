@@ -16,7 +16,7 @@
 
 ### 🎯 Goals & orchestration
 
-- **Goal-driven work** — `/goals add "I want to build a SaaS app"` → the CEO produces a strategy → the PM breaks it into 3–8 concrete tasks with priorities and owner agents → tasks are routed and executed by the best-matching agent.
+- **Goal-driven work** — `/goals add "I want to build a SaaS app"` → the CEO produces a strategy → the PM breaks it into 3–8 concrete tasks with priorities and owner agents → tasks are routed, executed by the best-matching agent, and reported back in Discord. Failed tasks can be retried with `/assign run <taskId>`.
 - **Keyword-scored task routing** — `routeTask` scores task text against each agent's domain vocabulary (architecture → CTO, implement → Developer, test → QA, audit → Security, …) with a PM fallback.
 - **Workflow state machine** — goals move PENDING → ANALYZING → IN_PROGRESS ⇄ REVIEWING → COMPLETED | FAILED; a goal auto-completes when all its tasks are done.
 - **One-off assignments** — `/assign new <title> <description> [agent]` creates, routes, and executes a task in a single command.
@@ -261,6 +261,7 @@ npm run dev:worker                       # bullmq workers (second terminal)
 | `/goals list` · `/goals view <id>` · `/goals complete <id>`                                                               | Track the org's goals                                      |
 | `/assign new <title> <description> [agent]`                                                                               | One-off task, executed immediately                         |
 | `/assign task <taskId> [agent]`                                                                                           | (Re)assign an existing task                                |
+| `/assign run <taskId>`                                                                                                    | Execute an assigned task now (retry failed ones)          |
 | `/chat <agent> <message>`                                                                                                 | Talk directly to an agent                                 |
 | `/swarm <prompt> [agents] [merge]`                                                                                        | Parallel multi-agent session + CEO synthesis              |
 | `/review <type> [task] [title]`                                                                                           | daily · project · code · strategy · security · performance |

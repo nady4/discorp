@@ -16,6 +16,9 @@ Your guild runs a virtual AI company. These are the commands:
 - \`/swarm <prompt> [agents] [merge]\` — parallel multi-agent session with CEO synthesis.
 - \`/assign new <title> <description> [agent]\` — create and execute a one-off task.
 - \`/assign task <taskId> [agent]\` — (re)assign an existing task.
+- \`/assign run <taskId>\` — execute an assigned task now.
+
+**Goals** — add a goal and the org auto-executes the planned tasks; failed tasks can be retried with \`/assign run\`.
 
 **Reviews**
 - \`/review <type> [task] [title]\` — run a review: \`daily\`, \`project\`, \`code\`, \`strategy\`, \`security\`, \`performance\`.

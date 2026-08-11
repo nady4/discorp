@@ -5,7 +5,7 @@ import { registry } from "../agents/index.js";
 import { routeTask } from "./router.js";
 import { workflow } from "./workflow.js";
 import { extractJson } from "../utils/json.js";
-import { DiscorpError, errorMessage } from "../utils/errors.js";
+import { CostGuardError, DiscorpError, errorMessage } from "../utils/errors.js";
 import { modeLevel } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 
@@ -23,11 +23,21 @@ export interface GoalPlan {
   tasks: GoalPlanTask[];
 }
 
+/** Result of auto-executing one goal task after the plan is produced. */
+export interface TaskExecutionResult {
+  taskId: string;
+  title: string;
+  status: "DONE" | "FAILED" | "BLOCKED";
+  agentId?: string;
+  summary?: string;
+}
+
 export interface GoalAnalysis {
   goalId: string;
   plan: GoalPlan;
   createdTaskIds: string[];
   strategy: string;
+  executions: TaskExecutionResult[];
 }
 
 /**
@@ -117,6 +127,7 @@ export class Orchestrator {
     }));
 
     const createdTaskIds: string[] = [];
+    const createdTitles: Record<string, string> = {};
     for (const t of tasks) {
       const agentId = t.agentId && activeAgents.includes(t.agentId)
         ? t.agentId
@@ -133,6 +144,33 @@ export class Orchestrator {
         },
       });
       createdTaskIds.push(task.id);
+      createdTitles[task.id] = t.title;
+    }
+
+    // Execute the planned tasks right away (sequential, budget-guarded).
+    // A failed task does not stop the rest; a CostGuardError (budget, sleep,
+    // limits) stops the loop and leaves the remaining tasks for later.
+    const executions: TaskExecutionResult[] = [];
+    for (const taskId of createdTaskIds) {
+      const title = createdTitles[taskId] ?? taskId;
+      try {
+        const result = await this.executeTask(guildId, taskId);
+        executions.push({
+          taskId,
+          title,
+          status: "DONE",
+          agentId: result.agentId,
+          summary: result.content.slice(0, 300),
+        });
+      } catch (err) {
+        if (err instanceof CostGuardError) {
+          executions.push({ taskId, title, status: "BLOCKED" });
+          logger.info({ goalId, taskId, err: errorMessage(err) }, "goal task execution blocked by cost guard");
+          break;
+        }
+        executions.push({ taskId, title, status: "FAILED" });
+        logger.warn({ goalId, taskId, err: errorMessage(err) }, "goal task execution failed");
+      }
     }
 
     const plan: GoalPlan = {
@@ -147,8 +185,8 @@ export class Orchestrator {
       data: { plan: plan as unknown as object, status: GoalStatus.IN_PROGRESS },
     });
 
-    logger.info({ goalId, taskCount: createdTaskIds.length }, "goal analyzed");
-    return { goalId, plan, createdTaskIds, strategy: strategy.content };
+    logger.info({ goalId, taskCount: createdTaskIds.length, executed: executions.length }, "goal analyzed");
+    return { goalId, plan, createdTaskIds, strategy: strategy.content, executions };
   }
 
   /** Assign a task to an agent (explicit or routed). */
@@ -207,7 +245,11 @@ export class Orchestrator {
       }
       return { taskId, content: result.content, agentId: task.assignedAgentId };
     } catch (err) {
-      await prisma.task.update({ where: { id: taskId }, data: { status: TaskStatus.FAILED } });
+      // CostGuard blocks (budget, sleep, daily limits) are transient — leave
+      // the task assigned so it can be retried later instead of marking FAILED.
+      if (!(err instanceof CostGuardError)) {
+        await prisma.task.update({ where: { id: taskId }, data: { status: TaskStatus.FAILED } });
+      }
       throw err;
     }
   }
