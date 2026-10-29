@@ -47,11 +47,14 @@ export class OpenAICompatibleProvider implements IProvider {
     return {
       content: msg?.content ?? "",
       toolCalls:
-        msg?.tool_calls?.map((tc) => ({
-          id: tc.id ?? crypto.randomUUID(),
-          name: tc.function.name,
-          arguments: tc.function.arguments ?? "{}",
-        })) ?? [],
+        msg?.tool_calls?.flatMap((tc) => {
+          if (!("function" in tc) || !tc.function) return [];
+          return [{
+            id: tc.id ?? crypto.randomUUID(),
+            name: tc.function.name,
+            arguments: tc.function.arguments ?? "{}",
+          }];
+        }) ?? [],
       inputTokens: usage?.prompt_tokens ?? 0,
       outputTokens: usage?.completion_tokens ?? 0,
       model: resp.model,

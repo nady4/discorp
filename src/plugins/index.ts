@@ -29,7 +29,7 @@ import { errorMessage } from "../utils/errors.js";
 const pluginToolSchema = z.object({
   name: z.string().regex(/^[a-z0-9_]{1,64}$/),
   description: z.string().default(""),
-  parameters: z.record(z.unknown()).default({}),
+  parameters: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const pluginSchema = z.object({
